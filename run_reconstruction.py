@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """
-OpenMVG SfM pipeline for SceauxCastle dataset.
-Run after build_openmvg.sh completes.
+openMVG SfM pipeline — the "from-source openMVG" alternative to the recommended
+pycolmap path (reconstruct.py). Run after build_openmvg.sh completes, then
+convert the result with:  uv run ply_to_json.py <colorized.ply>
+
+Paths are configurable via env vars (sensible defaults shown):
+  IMAGE_DIR    images to reconstruct      (default: <repo>/public/images)
+  OUTPUT_DIR   pipeline output            (default: <repo>/.sfm_work/openmvg)
+  OPENMVG_BIN  installed openMVG binaries (default: ~/openMVG_install/bin)
+  SENSOR_DB    camera sensor width DB     (default: alongside OPENMVG_BIN's source)
+
+Or pass the image dir as the first CLI argument.
 """
 
 import os
@@ -10,14 +19,28 @@ import subprocess
 import shutil
 from pathlib import Path
 
-# Paths
+# Repo root = this script's directory.
+PROJECT = Path(__file__).resolve().parent
 HOME = Path.home()
-OPENMVG_BIN = HOME / "openMVG_install" / "bin"
-SENSOR_DB = HOME / "openMVG_src" / "src" / "software" / "SfM" / "cameraSensorWidthDatabase" / "sensor_width_camera_database.txt"
 
-DATASET_DIR = HOME / "SceauxCastle"
-IMAGE_DIR = DATASET_DIR / "images"
-OUTPUT_DIR = HOME / "SceauxCastle_output"
+
+def env_path(name, default):
+    return Path(os.environ[name]) if name in os.environ else default
+
+
+OPENMVG_BIN = env_path("OPENMVG_BIN", HOME / "openMVG_install" / "bin")
+SENSOR_DB = env_path(
+    "SENSOR_DB",
+    HOME / "openMVG_src" / "src" / "software" / "SfM"
+    / "cameraSensorWidthDatabase" / "sensor_width_camera_database.txt",
+)
+
+# Image dir: CLI arg → $IMAGE_DIR → repo's public/images.
+IMAGE_DIR = (
+    Path(sys.argv[1]) if len(sys.argv) > 1
+    else env_path("IMAGE_DIR", PROJECT / "public" / "images")
+)
+OUTPUT_DIR = env_path("OUTPUT_DIR", PROJECT / ".sfm_work" / "openmvg")
 
 # Pipeline output subdirs
 LISTING_DIR = OUTPUT_DIR / "01_listing"
@@ -44,7 +67,9 @@ def main():
         sys.exit(f"ERROR: openMVG binaries not found at {OPENMVG_BIN}\nRun build_openmvg.sh first.")
 
     if not IMAGE_DIR.exists():
-        sys.exit(f"ERROR: Image directory not found at {IMAGE_DIR}\nRun: git clone https://github.com/openMVG/ImageDataset_SceauxCastle ~/SceauxCastle")
+        sys.exit(f"ERROR: Image directory not found at {IMAGE_DIR}\n"
+                 "Pass an image dir as the first argument, set $IMAGE_DIR, "
+                 "or place images in public/images/.")
 
     # Create output directories
     for d in [LISTING_DIR, FEATURES_DIR, MATCHES_DIR, RECONSTRUCTION_DIR, COLORIZED_DIR, MVS_DIR]:

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Python / SfM scratch
+__pycache__/
+.venv/
+.sfm_work/
+
+# Large generated reconstruction artifacts (regenerate with the Python exporters)
+public/pointcloud.json
+public/cameras.json

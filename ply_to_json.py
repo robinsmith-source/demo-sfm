@@ -13,6 +13,8 @@ Output format:
 import struct, json, sys, os
 from pathlib import Path
 
+PROJECT = Path(__file__).resolve().parent  # repo root; defaults anchor here
+
 def read_ply(path):
     positions = []
     colors    = []
@@ -86,8 +88,9 @@ def read_ply(path):
 
 
 def main():
-    ply_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / 'SceauxCastle_colmap/cloud.ply'
-    out_path = Path(sys.argv[2]) if len(sys.argv) > 2 else Path('pointcloud.json')
+    ply_path = Path(sys.argv[1]) if len(sys.argv) > 1 else PROJECT / '.sfm_work/colmap/cloud.ply'
+    out_path = Path(sys.argv[2]) if len(sys.argv) > 2 else PROJECT / 'public/pointcloud.json'
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"Reading {ply_path} …")
     positions, colors = read_ply(ply_path)
