@@ -7,6 +7,3 @@ dist/
 __pycache__/
 .venv/
 .sfm_work/
-
-# Large generated reconstruction artifacts (regenerate with: uv run pipeline/reconstruct.py)
-public/datasets/*/data/
