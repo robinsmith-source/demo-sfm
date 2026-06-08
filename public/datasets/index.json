@@ -1,0 +1,15 @@
+[
+  {
+    "id": "sceaux-castle",
+    "name": "Sceaux Castle",
+    "subtitle": "COLMAP · sparse reconstruction",
+    "credit": "Château de Sceaux · © 2012 Pierre Moulon (openMVG)"
+  },
+  {
+    "id": "temple-ring",
+    "name": "Temple Ring",
+    "subtitle": "COLMAP · full object · 47-view ring",
+    "credit": "Temple of the Dioskouroi (plaster) · Middlebury Multi-View Stereo",
+    "flipUp": true
+  }
+]

@@ -1,8 +1,8 @@
 /**
- * viewer.js — three.js scene, entities and render loop.
+ * viewer.ts — three.js scene, entities and render loop.
  *
  * All entity geometry is derived from the reconstruction's true camera basis and
- * intrinsics (see sfm.js): frustums use `frustumCorners`, photo planes are
+ * intrinsics (see sfm.ts): frustums use `frustumCorners`, photo planes are
  * oriented with `planeQuaternion` and sized by the real image aspect ratio, and
  * track lines connect each 3D point to the camera centres that actually observe
  * it. Nothing here invents geometry.
@@ -12,12 +12,25 @@ import {
   WebGLRenderer, Scene, Color, Fog, PerspectiveCamera,
   AmbientLight, DirectionalLight, GridHelper, Group,
   BufferGeometry, Float32BufferAttribute, Points, PointsMaterial,
-  LineSegments, LineBasicMaterial, Line, Mesh, SphereGeometry,
+  LineSegments, LineBasicMaterial, Mesh, SphereGeometry,
   MeshBasicMaterial, PlaneGeometry, EdgesGeometry, DoubleSide,
   TextureLoader, SRGBColorSpace, Vector3, Vector2, Raycaster,
+  type Texture, type Object3D, type Material,
 } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { frustumCorners, planeQuaternion } from './sfm.js';
+import { frustumCorners, planeQuaternion } from './sfm';
+import type { Reconstruction, SfmCamera, Track } from './types';
+
+export interface HomeView { pos: Vector3; target: Vector3; }
+export interface Viewer {
+  renderer: WebGLRenderer;
+  scene: Scene;
+  camera: PerspectiveCamera;
+  controls: OrbitControls;
+  HOME: HomeView;
+}
+/** Live reference to the current photo meshes, read by the picker each click. */
+export interface PickerRef { meshes: Mesh[]; }
 
 // Light, minimalist palette.
 const COL = {
@@ -30,7 +43,7 @@ const COL = {
   frame: 0x1f2937,    // photo borders
 };
 
-export function createViewer(canvas) {
+export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const renderer = new WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -40,7 +53,9 @@ export function createViewer(canvas) {
   scene.fog = new Fog(COL.fog, 60, 160);
 
   const camera = new PerspectiveCamera(55, innerWidth / innerHeight, 0.05, 1000);
-  const HOME = { pos: new Vector3(20, 13, 24), target: new Vector3(0, 2.5, 0) };
+  // Tuned for the canonical normalised scale (RMS radius ≈ 3.42, see sfm.ts), so
+  // it frames any dataset — a building or a compact object ring — out of the box.
+  const HOME: HomeView = { pos: new Vector3(10, 7, 13), target: new Vector3(0, 1, 0) };
   camera.position.copy(HOME.pos);
 
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -65,7 +80,7 @@ export function createViewer(canvas) {
 }
 
 // ── Point cloud ───────────────────────────────────────────
-export function buildPointCloud({ positions, colors }) {
+export function buildPointCloud({ positions, colors }: Pick<Reconstruction, 'positions' | 'colors'>): Points {
   const geo = new BufferGeometry();
   geo.setAttribute('position', new Float32BufferAttribute(positions, 3));
   geo.setAttribute('color', new Float32BufferAttribute(colors, 3));
@@ -77,7 +92,7 @@ export function buildPointCloud({ positions, colors }) {
 }
 
 // ── Camera frustums + centre dots ─────────────────────────
-export function buildCameras(cameras, depth = 0.9) {
+export function buildCameras(cameras: SfmCamera[], depth = 0.9): Group {
   const group = new Group();
   const lineMat = new LineBasicMaterial({ color: COL.camera, transparent: true, opacity: 0.85 });
   const dotGeo = new SphereGeometry(0.09, 8, 8);
@@ -85,7 +100,7 @@ export function buildCameras(cameras, depth = 0.9) {
 
   cameras.forEach((cam) => {
     const corners = frustumCorners(cam, depth);
-    const pts = [];
+    const pts: Vector3[] = [];
     // apex -> 4 corners
     corners.forEach((c) => { pts.push(cam.center.clone(), c.clone()); });
     // image rectangle
@@ -100,14 +115,17 @@ export function buildCameras(cameras, depth = 0.9) {
 }
 
 // ── Photo planes anchored on each camera's image plane ────
-export function buildPhotos(cameras, textures, depth = 0.9) {
+export function buildPhotos(cameras: SfmCamera[], textures: (Texture | null)[], depth = 0.9): { group: Group; meshes: Mesh[] } {
   const group = new Group();
-  const meshes = [];
+  const meshes: Mesh[] = [];
 
   cameras.forEach((cam, i) => {
     const tex = textures[i];
     if (!tex) return;
-    const aspect = tex.image ? tex.image.width / tex.image.height : cam.intrinsics.width / cam.intrinsics.height;
+    const img = tex.image as { width?: number; height?: number } | undefined;
+    const aspect = img?.width && img.height
+      ? img.width / img.height
+      : cam.intrinsics.width / cam.intrinsics.height;
 
     // Physical size of the image plane at `depth`, derived from intrinsics so
     // the photo exactly fills the frustum.
@@ -138,8 +156,8 @@ export function buildPhotos(cameras, textures, depth = 0.9) {
 }
 
 // ── Feature tracks: point <-> observing camera centres ────
-export function buildTracks(tracks, cameras) {
-  const pts = [];
+export function buildTracks(tracks: Track[], cameras: SfmCamera[]): LineSegments | Group {
+  const pts: Vector3[] = [];
   tracks.forEach(({ point, cams }) => {
     cams.forEach((ci) => {
       const cam = cameras[ci];
@@ -153,18 +171,19 @@ export function buildTracks(tracks, cameras) {
   );
 }
 
-export function buildGrid(size = 80, divisions = 40) {
+export function buildGrid(size = 80, divisions = 40): GridHelper {
   const grid = new GridHelper(size, divisions, COL.gridCenter, COL.grid);
   grid.position.y = -0.02;
-  grid.material.opacity = 0.6;
-  grid.material.transparent = true;
+  const mat = grid.material as Material;
+  mat.opacity = 0.6;
+  mat.transparent = true;
   return grid;
 }
 
 // ── Texture loading ───────────────────────────────────────
-export function loadTextures(files) {
+export function loadTextures(files: string[]): Promise<(Texture | null)[]> {
   const loader = new TextureLoader();
-  return Promise.all(files.map((f) => new Promise((resolve) => {
+  return Promise.all(files.map((f) => new Promise<Texture | null>((resolve) => {
     loader.load(
       f,
       (tex) => { tex.colorSpace = SRGBColorSpace; resolve(tex); },
@@ -175,10 +194,17 @@ export function loadTextures(files) {
 }
 
 // ── Raycasting against photo planes ───────────────────────
-export function createPhotoPicker(renderer, camera, meshes, onPick) {
+// `pickerRef.meshes` is read live so the picker keeps working after a dataset
+// switch swaps the photo meshes (listeners are attached only once).
+export function createPhotoPicker(
+  renderer: WebGLRenderer,
+  camera: PerspectiveCamera,
+  pickerRef: PickerRef,
+  onPick: (i: number) => void,
+): void {
   const raycaster = new Raycaster();
   const mouse = new Vector2();
-  let down = null;
+  let down: { x: number; y: number } | null = null;
 
   renderer.domElement.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY }; });
   renderer.domElement.addEventListener('pointerup', (e) => {
@@ -189,7 +215,22 @@ export function createPhotoPicker(renderer, camera, meshes, onPick) {
     mouse.x = (e.clientX / innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
-    const hits = raycaster.intersectObjects(meshes);
-    if (hits.length) onPick(hits[0].object.userData.imgIdx);
+    const hits = raycaster.intersectObjects(pickerRef.meshes);
+    if (hits.length) onPick(hits[0].object.userData.imgIdx as number);
+  });
+}
+
+// Free GPU resources for an entity (and its children) before discarding it.
+export function disposeObject(obj: Object3D): void {
+  obj.traverse((node) => {
+    const o = node as Mesh;
+    if (o.geometry) o.geometry.dispose();
+    const raw = o.material as Material | Material[] | undefined;
+    const mats = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    for (const m of mats) {
+      const map = (m as MeshBasicMaterial).map;
+      if (map) map.dispose();
+      m.dispose();
+    }
   });
 }

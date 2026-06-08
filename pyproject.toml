@@ -1,5 +1,5 @@
 [project]
-name = "openmvg"
+name = "sfm-demo"
 version = "0.1.0"
 description = "Structure-from-Motion reconstruction pipeline with a web point-cloud viewer"
 requires-python = ">=3.10,<3.13"

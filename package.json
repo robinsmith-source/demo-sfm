@@ -1,18 +1,23 @@
 {
-  "name": "sceaux-castle-sfm-viewer",
+  "name": "sfm-demo",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Static web viewer for an openMVG / COLMAP Structure-from-Motion reconstruction of the Sceaux Castle dataset.",
+  "description": "Static web viewer for a real COLMAP Structure-from-Motion reconstruction of the Sceaux Castle dataset.",
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
+    "reconstruct": "uv run pipeline/reconstruct.py",
     "dev": "vite",
-    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "three": "^0.167.1"
+    "three": "^0.184.0"
   },
   "devDependencies": {
-    "vite": "^5.4.0"
+    "@types/three": "^0.184.1",
+    "typescript": "^6.0.3",
+    "vite": "8.0.5"
   }
 }

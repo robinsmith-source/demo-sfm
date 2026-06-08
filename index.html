@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Sceaux Castle · Structure from Motion</title>
-  <meta name="description" content="Interactive viewer for an openMVG / COLMAP sparse 3D reconstruction of the Sceaux Castle dataset." />
+  <meta name="description" content="Interactive viewer for a real COLMAP sparse 3D reconstruction of the Sceaux Castle dataset." />
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -19,8 +19,10 @@
 
     <!-- Heads-up display -->
     <header id="title">
-      <h1>Sceaux Castle</h1>
+      <h1 id="ds-title">Sceaux Castle</h1>
       <p id="subtitle">Structure from Motion</p>
+      <select id="dataset" aria-label="Select dataset"></select>
+      <p id="credit"></p>
     </header>
 
     <dl id="stats">
@@ -46,6 +48,6 @@
     </div>
   </div>
 
-  <script type="module" src="/src/main.js"></script>
+  <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

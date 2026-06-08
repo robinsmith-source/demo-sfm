@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """
-Run a real Structure-from-Motion reconstruction on the photographs in
-public/images/ using pycolmap (COLMAP's engine), and export the result to the
-JSON the web viewer consumes.
+Run a real Structure-from-Motion reconstruction on a folder of photographs using
+pycolmap (COLMAP's engine), and export the result to the JSON the web viewer
+consumes.
 
 This produces a point cloud that genuinely corresponds to the photos: every 3D
 point is triangulated from SIFT features matched across the images, and every
 camera pose is recovered by incremental SfM.
 
-Outputs (in public/):
-  pointcloud.json : {count, positions[x,y,z…] (COLMAP/CV coords), colors[r,g,b 0..1…]}
-  cameras.json    : [{name, position, target, q[wxyz], t, intrinsics, observations[]}]
+Datasets live under public/datasets/<id>/ with images/ in and data/ out:
+  data/pointcloud.json : {count, positions[x,y,z…] (CV coords), colors[r,g,b 0..1…]}
+  data/cameras.json    : [{name, position, target, q[wxyz], t, intrinsics, observations[]}]
 
 Usage:
-  uv run reconstruct.py [image_dir] [out_dir]
+  uv run pipeline/reconstruct.py                 # every dataset in public/datasets/index.json
+  uv run pipeline/reconstruct.py <dataset-id>    # one dataset, e.g. temple-ring
+  uv run pipeline/reconstruct.py <img_dir> <out_dir>   # arbitrary folder
 """
 
 import sys
@@ -25,18 +27,41 @@ import numpy as np
 import pycolmap
 
 
-PROJECT = Path(__file__).resolve().parent  # repo root; defaults anchor here
+PROJECT = Path(__file__).resolve().parent.parent  # repo root (pipeline/ -> repo)
+DATASETS = PROJECT / "public" / "datasets"
 
 
 def main():
-    image_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else PROJECT / "public" / "images"
-    out_dir   = Path(sys.argv[2]) if len(sys.argv) > 2 else PROJECT / "public"
+    args = sys.argv[1:]
+
+    # Explicit <img_dir> <out_dir> form.
+    if len(args) >= 2:
+        reconstruct_one(Path(args[0]), Path(args[1]))
+        return
+
+    # Resolve which dataset ids to build.
+    if len(args) == 1:
+        ids = [args[0]]
+    else:
+        manifest = json.loads((DATASETS / "index.json").read_text())
+        ids = [d["id"] for d in manifest]
+
+    for did in ids:
+        image_dir = DATASETS / did / "images"
+        out_dir = DATASETS / did / "data"
+        print(f"\n########## dataset: {did} ##########")
+        reconstruct_one(image_dir, out_dir)
+
+    print("\nDone. Run 'pnpm dev' (or rebuild) to view the reconstructions.")
+
+
+def reconstruct_one(image_dir, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if not image_dir.exists():
         sys.exit(f"Image directory not found: {image_dir}")
 
-    work = PROJECT / ".sfm_work" / "pycolmap"
+    work = PROJECT / ".sfm_work" / image_dir.parent.name
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
@@ -48,7 +73,7 @@ def main():
     print("Structure-from-Motion reconstruction (pycolmap)")
     print("=" * 60)
 
-    # Only feed actual image files to COLMAP (skip K.txt / Readme.txt).
+    # Only feed actual image files to COLMAP (skip K.txt / Readme.txt / *_par.txt).
     exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
     image_names = sorted(p.name for p in image_dir.iterdir() if p.suffix.lower() in exts)
     print(f"Images ({len(image_names)}): {', '.join(image_names)}")
@@ -85,7 +110,6 @@ def main():
     # 4. Export to viewer JSON.
     print("\n[4/4] Exporting JSON…")
     export(rec, out_dir)
-    print("\nDone. Run 'npm run dev' (or rebuild) to view the real reconstruction.")
 
 
 def export(rec, out_dir):
@@ -116,8 +140,8 @@ def export(rec, out_dir):
     for image in sorted(rec.images.values(), key=lambda im: im.name):
         cam = rec.cameras[image.camera_id]
 
-        # cam_from_world: world -> camera rigid transform.
-        cfw = image.cam_from_world
+        # cam_from_world: world -> camera rigid transform (method in pycolmap 4.x).
+        cfw = image.cam_from_world()
         qx, qy, qz, qw = (float(v) for v in cfw.rotation.quat)  # Eigen order [x,y,z,w]
         tx, ty, tz = (float(v) for v in cfw.translation)
 

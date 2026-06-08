@@ -1,87 +1,121 @@
-# Sceaux Castle · Structure-from-Motion Viewer
+# Structure-from-Motion Viewer
 
-An interactive [three.js](https://threejs.org/) viewer for a sparse 3D
-reconstruction of the [Sceaux Castle dataset](https://github.com/openMVG/ImageDataset_SceauxCastle),
-built as a static site with [Vite](https://vitejs.dev/).
+An interactive [three.js](https://threejs.org/) viewer for **real** sparse 3D
+reconstructions. Each scene's point cloud, camera poses and feature tracks are
+produced by COLMAP from the source photographs — nothing is synthesized.
 
-The viewer shows the sparse point cloud, recovered camera poses (as frustums with
-their source photographs pinned to the image plane), and feature **tracks** that
-link each 3D point to the cameras that observe it.
+Two datasets ship in, switchable live from the dropdown:
+
+- **Sceaux Castle** — a building, 11 photos ([openMVG dataset](https://github.com/openMVG/ImageDataset_SceauxCastle))
+- **Temple Ring** — a full 3D object captured as a 47-view ring ([Middlebury MVS](https://vision.middlebury.edu/mview/data/))
+
+The viewer shows the sparse point cloud, the recovered camera poses (frustums
+with each source photo pinned to its image plane), and the feature **tracks**
+linking 3D points to the cameras that observe them.
+
+## Toolchains
+
+| Part | Manager | Why |
+| --- | --- | --- |
+| Web viewer | [pnpm](https://pnpm.io/) + [Vite](https://vitejs.dev/) + [TypeScript](https://www.typescriptlang.org/) | static, dependency-light, type-checked build |
+| Reconstruction | [uv](https://docs.astral.sh/uv/) + [pycolmap](https://pypi.org/project/pycolmap/) | prebuilt COLMAP engine, no system build |
 
 ## Quick start
 
 ```bash
-npm install
-npm run dev        # local dev server with HMR
-npm run build      # production build → dist/
-npm run preview    # serve the production build locally
+# 1. Reconstruct every dataset -> public/datasets/<id>/data/*.json
+uv sync
+pnpm reconstruct          # alias for: uv run pipeline/reconstruct.py (all datasets)
+
+# 2. View it
+pnpm install
+pnpm dev                  # local dev server with HMR
+pnpm typecheck            # tsc --noEmit
+pnpm build                # type-check + production build -> dist/
+pnpm preview              # serve the production build locally
 ```
 
-`npm run build` emits a fully static `dist/` folder. `base: './'` in
-`vite.config.js` keeps every asset path relative, so the output can be dropped
-onto **any** static host (GitHub Pages, Netlify, Cloudflare Pages, S3, a
-sub-path) with no extra configuration.
+The viewer reads `public/datasets/index.json` (the manifest) and loads the
+selected dataset's `data/pointcloud.json` + `data/cameras.json`. If a dataset's
+data is absent it shows the exact command to generate it rather than inventing a
+scene.
 
-## Data: real vs. synthetic
+## Datasets
 
-On load the viewer tries to fetch a real reconstruction:
+Each dataset is a self-contained folder:
 
-- `public/pointcloud.json` — coloured 3D points
-- `public/cameras.json` — camera poses + intrinsics + observations
+```
+public/datasets/
+  index.json                     manifest: [{ id, name, subtitle, credit }, …]
+  <id>/
+    images/                      source photographs (committed)
+    data/                        generated JSON (git-ignored, rebuilt by the pipeline)
+```
 
-If those files are absent, it falls back to a **geometrically self-consistent
-synthetic reconstruction**: a synthetic castle point cloud with cameras placed on
-a frontal arc. The tracks shown for the synthetic scene are *not* random — every
-point is projected into every camera with the real pinhole model and a track is
-recorded only where the point genuinely lands inside that camera's image, the
-same visibility test feature matching enforces (`src/sfm.js`).
+Every reconstruction is normalised to a canonical scale on load (`sfm.js`), so a
+sprawling building and a compact object ring both frame correctly with the same
+viewer constants.
 
-### Generating the real reconstruction
-
-All pipelines reconstruct the photos in `public/images/` by default and write
-the JSON into `public/`. Paths are not hard-coded — pass a different image
-directory as the first argument (or via the documented env vars) to reconstruct
-any dataset.
-
-**Recommended — pycolmap (no system build, works on any distro):**
+### Reconstruct a specific dataset
 
 ```bash
-uv sync                                # installs pycolmap (prebuilt engine) + numpy
-uv run reconstruct.py                  # → public/pointcloud.json + cameras.json
-# reconstruct a different dataset:  uv run reconstruct.py /path/to/images
+uv run pipeline/reconstruct.py temple-ring          # one dataset by id
+uv run pipeline/reconstruct.py /any/images /any/out # arbitrary folders
 ```
 
-**Alternative — COLMAP CLI** (if you already have `colmap` installed; exports
-intrinsics + per-image observations too):
+### Add your own object (e.g. another ring)
 
 ```bash
-bash run_colmap.sh                     # add --clean to start fresh
-# internally: python3 colmap_to_json.py <sparse/0> public/
+# 1. drop photos in
+mkdir -p public/datasets/my-object/images
+cp /path/to/ring/*.jpg public/datasets/my-object/images/
+
+# 2. register it in public/datasets/index.json
+#    { "id": "my-object", "name": "My Object", "subtitle": "…", "credit": "…" }
+
+# 3. reconstruct + view
+uv run pipeline/reconstruct.py my-object
+pnpm dev
 ```
 
-`run_colmap.sh` auto-detects an NVIDIA GPU (override with `USE_GPU=0|1`) and
-prints the right install command for your package manager if `colmap` is missing.
+A clean "ring around a single object" capture (20–50 photos, even spacing,
+textured surface) reconstructs best. The pipeline runs SIFT extraction →
+exhaustive matching → incremental mapping, then exports the largest model. Each
+camera's source photo is resolved from the filename COLMAP registered, so the
+cloud, poses and photos always correspond to the same images.
 
-**Alternative — openMVG from source** (`build_openmvg.sh` detects your package
-manager — pacman / apt / dnf / zypper / brew — and installs the build deps):
+**Orientation.** COLMAP only solves orientation up to an arbitrary rotation, so
+the viewer auto-levels each scene by aligning the camera-ring/arc plane to the
+horizon (`fitPlaneNormal` in `sfm.ts`) — this stands the object up and lays the
+ring flat. The up/down *sign* is ambiguous for a symmetric ring; if a dataset
+loads upside-down, add `"flipUp": true` to its manifest entry (as the Temple
+Ring does).
 
-```bash
-bash build_openmvg.sh                  # build + install openMVG once
-python3 run_reconstruction.py          # run the openMVG SfM pipeline
-python3 ply_to_json.py .sfm_work/openmvg/05_colorized/colorized.ply
-```
+## Deploying
 
-Then re-run `npm run dev` / `npm run build`. The generated JSON files are
-git-ignored because they are large and reproducible. All scratch output lands in
-`.sfm_work/` (also git-ignored).
+### GitHub Pages (automatic)
+
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) builds everything in
+CI on each push to `master`: it runs the COLMAP reconstruction for every dataset
+from the committed photos, builds with Vite, and publishes to Pages. One-time
+setup: **Settings → Pages → Source: GitHub Actions**. Generated JSON is never
+committed — it is rebuilt on every deploy, so the published clouds always match
+the images.
+
+### Any static host (manual)
+
+`pnpm build` emits a fully static `dist/`. `base: './'` in `vite.config.js` keeps
+every asset path relative, so the output drops onto any static host (Netlify,
+Cloudflare Pages, S3, a sub-path) with no extra configuration. Run
+`pnpm reconstruct` before `pnpm build` so the JSON is copied into the bundle.
 
 ## Geometry notes
 
-The recovered geometry follows the computer-vision convention used by openMVG and
-COLMAP (**+X right, +Y down, +Z forward**), while three.js uses OpenGL's
-convention (**+X right, +Y up, +Z toward the viewer**). All points, camera
-centres and basis vectors are converted on load via a 180° rotation about X
-(`cvToThree`, `src/sfm.js`) so the scene is upright and correctly oriented.
+The recovered geometry follows the computer-vision convention used by COLMAP
+(**+X right, +Y down, +Z forward**), while three.js uses OpenGL's convention
+(**+X right, +Y up, +Z toward the viewer**). All points, camera centres and basis
+vectors are converted on load via a 180° rotation about X (`cvToThree`,
+[src/sfm.js](src/sfm.js)) so the scene is upright and correctly oriented.
 
 Camera poses are rebuilt from the world→camera rotation/translation:
 
@@ -90,38 +124,50 @@ C = -Rᵀ t                 # camera centre in world space
 camera axes = columns of Rᵀ
 ```
 
-Frustums and photo planes are sized from the real intrinsics (`fx, fy, cx, cy,
-w, h`) rather than a hard-coded field of view, so a photo exactly fills its
+Frustums and photo planes are sized from the real intrinsics (fx, fy, cx, cy, w,
+h) rather than a hard-coded field of view, so each photo exactly fills its
 frustum.
 
 ## Project layout
 
 ```
-index.html          Vite entry
+index.html              Vite entry
+tsconfig.json           TypeScript config (strict, noEmit — Vite/esbuild transpiles)
 src/
-  main.js           bootstrap: load data, build entities, wire HUD, render loop
-  sfm.js            geometry: coordinate conversion, pinhole model, synthetic recon
-  viewer.js         three.js scene + entity builders
-  ui.js             HUD: layer toggles, filmstrip, lightbox, stats
-  style.css         light, minimal styling
-public/
-  images/           the 11 source photographs
-  *.json            (generated) reconstruction data
-*.py / *.sh         offline openMVG / COLMAP pipeline + JSON exporters
+  main.ts               bootstrap: manifest, dataset switching, WASD movement, render loop
+  sfm.ts                geometry: coordinate conversion, pinhole model, JSON loader, scale normalisation
+  viewer.ts             three.js scene + entity builders + teardown
+  ui.ts                 HUD: dataset selector, layer toggles, filmstrip, lightbox, stats
+  types.ts              shared domain types
+  style.css             light, minimal styling
+public/datasets/
+  index.json            dataset manifest
+  <id>/images/          source photographs (committed)
+  <id>/data/            (generated) pointcloud.json + cameras.json
+pipeline/
+  reconstruct.py        the COLMAP (pycolmap) reconstruction + JSON exporter
+pyproject.toml          uv-managed Python project
+package.json            pnpm-managed web project
+.github/workflows/      GitHub Pages deploy
 ```
 
 ## Controls
 
 | Action | Control |
 | --- | --- |
+| Switch dataset | Dropdown (top-left) |
 | Rotate | Left-drag |
 | Pan | Right-drag |
 | Zoom | Scroll |
+| Move / strafe | `W` `A` `S` `D` |
+| Move down / up | `Q` / `E` |
+| Move faster | Hold `Shift` |
 | Reset view | `R` |
-| Auto-orbit | `A` |
+| Auto-orbit | `O` |
 | Expand a photo | Click a thumbnail or a photo plane |
 
 ## Credits
 
-Imagery: *Château de Sceaux*, © 2012 Pierre Moulon. Dataset courtesy of the
-openMVG project.
+- *Château de Sceaux* imagery © 2012 Pierre Moulon, courtesy of the openMVG project.
+- *Temple Ring* from the [Middlebury Multi-View Stereo](https://vision.middlebury.edu/mview/)
+  evaluation (Seitz et al., CVPR 2006).

@@ -8,6 +8,5 @@ __pycache__/
 .venv/
 .sfm_work/
 
-# Large generated reconstruction artifacts (regenerate with the Python exporters)
-public/pointcloud.json
-public/cameras.json
+# Large generated reconstruction artifacts (regenerate with: uv run pipeline/reconstruct.py)
+public/datasets/*/data/
