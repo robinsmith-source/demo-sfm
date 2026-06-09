@@ -10,6 +10,6 @@
     "name": "Temple Ring",
     "subtitle": "COLMAP · full object · 47-view ring",
     "credit": "Temple of the Dioskouroi (plaster) · Middlebury Multi-View Stereo",
-    "flipUp": true
+    "flipUp": false
   }
 ]
