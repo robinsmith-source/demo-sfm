@@ -4,10 +4,11 @@ An interactive [three.js](https://threejs.org/) viewer for **real** sparse 3D
 reconstructions. Each scene's point cloud, camera poses and feature tracks are
 produced by COLMAP from the source photographs — nothing is synthesized.
 
-Two datasets ship in, switchable live from the dropdown:
+Datasets are discovered from `public/datasets/` and are switchable live from the dropdown:
 
 - **Sceaux Castle** — a building, 11 photos ([openMVG dataset](https://github.com/openMVG/ImageDataset_SceauxCastle))
 - **Temple Ring** — a full 3D object captured as a 47-view ring ([Middlebury MVS](https://vision.middlebury.edu/mview/data/))
+- **Robot** — a locally captured object reconstructed from a photo orbit
 
 The viewer shows the sparse point cloud, the recovered camera poses (frustums
 with each source photo pinned to its image plane), and the feature **tracks**
@@ -35,10 +36,12 @@ pnpm build                # type-check + production build -> dist/
 pnpm preview              # serve the production build locally
 ```
 
-The viewer reads `public/datasets/index.json` (the manifest) and loads the
-selected dataset's `data/pointcloud.json` + `data/cameras.json`. If a dataset's
-data is absent it shows the exact command to generate it rather than inventing a
-scene.
+The viewer discovers every folder under `public/datasets/` at dev/build time and
+loads the selected dataset's `data/pointcloud.json` + `data/cameras.json`.
+`public/datasets/index.json` is optional metadata for custom names, subtitles,
+credits, ordering, and orientation overrides; folders not listed there still
+appear automatically. If a dataset's data is absent the viewer shows the exact
+command to generate it rather than inventing a scene.
 
 ## Datasets
 
@@ -46,7 +49,7 @@ Each dataset is a self-contained folder:
 
 ```
 public/datasets/
-  index.json                     manifest: [{ id, name, subtitle, credit }, …]
+  index.json                     optional metadata overrides and ordering
   <id>/
     images/                      source photographs (committed)
     data/                        generated JSON (git-ignored, rebuilt by the pipeline)
@@ -70,10 +73,7 @@ uv run pipeline/reconstruct.py /any/images /any/out # arbitrary folders
 mkdir -p public/datasets/my-object/images
 cp /path/to/ring/*.jpg public/datasets/my-object/images/
 
-# 2. register it in public/datasets/index.json
-#    { "id": "my-object", "name": "My Object", "subtitle": "…", "credit": "…" }
-
-# 3. reconstruct + view
+# 2. reconstruct + view (the folder is discovered automatically)
 uv run pipeline/reconstruct.py my-object
 pnpm dev
 ```
@@ -141,7 +141,7 @@ src/
   types.ts              shared domain types
   style.css             light, minimal styling
 public/datasets/
-  index.json            dataset manifest
+  index.json            optional dataset metadata overrides and ordering
   <id>/images/          source photographs (committed)
   <id>/data/            (generated) pointcloud.json + cameras.json
 pipeline/

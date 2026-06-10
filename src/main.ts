@@ -1,13 +1,14 @@
 /**
  * main.ts — application entry point.
  *
- * Loads the dataset manifest (public/datasets/index.json), builds a selector,
- * and renders the chosen real COLMAP reconstruction. Switching datasets tears
- * down the previous scene entities and rebuilds them in place. There is no
- * synthetic fallback — only the real reconstructions produced by the pipeline.
+ * Loads the build-time discovered datasets, builds a selector, and renders the
+ * chosen real COLMAP reconstruction. Switching datasets tears down the previous
+ * scene entities and rebuilds them in place. There is no synthetic fallback —
+ * only the real reconstructions produced by the pipeline.
  */
 
 import { Vector3, type Group, type Points, type LineSegments, type GridHelper } from 'three';
+import manifest from 'virtual:datasets';
 import { loadRealReconstruction } from './sfm';
 import {
   createViewer, buildPointCloud, buildCameras, buildPhotos,
@@ -171,14 +172,9 @@ async function main(): Promise<void> {
     hideLoading();
   }
 
-  // ── Dataset manifest → selector ──
-  let manifest: DatasetMeta[] = [];
-  try {
-    const res = await fetch('datasets/index.json');
-    if (res.ok) manifest = await res.json();
-  } catch { /* handled below */ }
+  // ── Discovered datasets → selector ──
   if (!Array.isArray(manifest) || manifest.length === 0) {
-    showError('No datasets found', 'Expected public/datasets/index.json with at least one entry.', '');
+    showError('No datasets found', 'Expected at least one folder under public/datasets/.', '');
     return;
   }
 

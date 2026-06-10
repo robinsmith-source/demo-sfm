@@ -40,12 +40,14 @@ export interface Reconstruction {
   trackCount: number;
 }
 
-/** One entry in public/datasets/index.json. */
+/** One dataset discovered under public/datasets/, with optional metadata overrides. */
 export interface DatasetMeta {
   id: string;
   name: string;
   subtitle?: string;
   credit?: string;
+  /** Dataset-relative directory containing the source photographs. */
+  imageDir?: string;
   /**
    * Auto-levelling stands the object up by aligning the camera-ring plane to
    * the horizon, but the up/down sign is ambiguous for a symmetric ring orbit.

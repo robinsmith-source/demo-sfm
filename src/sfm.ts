@@ -216,6 +216,7 @@ const TARGET_RMS_RADIUS = 3.42;
  */
 export async function loadRealReconstruction(meta: DatasetMeta): Promise<Reconstruction | null> {
   const base = `datasets/${meta.id}`;
+  const imageBase = meta.imageDir === '.' ? base : `${base}/${meta.imageDir ?? 'images'}`;
   let cloud: RawCloud;
   let cams: RawCamera[];
   try {
@@ -280,7 +281,7 @@ export async function loadRealReconstruction(meta: DatasetMeta): Promise<Reconst
     const name = c.name ?? `cam_${i}`;
     return {
       name,
-      file: `${base}/images/${name}`, // the actual reconstructed photograph (dataset-relative)
+      file: `${imageBase}/${name}`, // the actual reconstructed photograph (dataset-relative)
       ...basis,
       intrinsics: intr,
       observations: c.observations ?? [],
