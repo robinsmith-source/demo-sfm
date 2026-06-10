@@ -13,7 +13,7 @@ Datasets live under public/datasets/<id>/ with images/ in and data/ out:
   data/cameras.json    : [{name, position, target, q[wxyz], t, intrinsics, observations[]}]
 
 Usage:
-  uv run pipeline/reconstruct.py                       # every dataset in index.json
+  uv run pipeline/reconstruct.py                       # every folder under public/datasets/
   uv run pipeline/reconstruct.py <dataset-id>          # one dataset, e.g. temple-ring
   uv run pipeline/reconstruct.py -i <folder>           # only the pictures in <folder>
   uv run pipeline/reconstruct.py -i <folder> -o <dir>  # arbitrary folder -> arbitrary out
@@ -68,20 +68,36 @@ def main():
         reconstruct_one(image_dir, out_dir, jobs=jobs, name=args.dataset or image_dir.name)
         return
 
-    # Resolve which dataset ids to build.
+    # Resolve which dataset ids to build. Existing metadata entries keep their
+    # order; unregistered folders are appended automatically.
     if args.dataset:
         ids = [args.dataset]
     else:
-        manifest = json.loads((DATASETS / "index.json").read_text())
-        ids = [d["id"] for d in manifest]
+        ids = discover_dataset_ids()
 
     for did in ids:
-        image_dir = DATASETS / did / "images"
+        dataset_dir = DATASETS / did
+        image_dir = dataset_dir / "images"
+        if not image_dir.is_dir():
+            image_dir = dataset_dir
         out_dir = Path(args.out) if args.out else DATASETS / did / "data"
         print(f"\n########## dataset: {did} ##########")
         reconstruct_one(image_dir, out_dir, jobs=jobs, name=did)
 
     print("\nDone. Run 'pnpm dev' (or rebuild) to view the reconstructions.")
+
+
+def discover_dataset_ids():
+    """Return dataset folders, preserving optional metadata ordering."""
+    configured = []
+    manifest_path = DATASETS / "index.json"
+    if manifest_path.exists():
+        configured = [entry["id"] for entry in json.loads(manifest_path.read_text())]
+
+    existing = {path.name for path in DATASETS.iterdir()
+                if path.is_dir() and not path.name.startswith(".")}
+    return ([did for did in configured if did in existing]
+            + sorted(existing.difference(configured)))
 
 
 def resolve_image_dir(folder, dataset):
