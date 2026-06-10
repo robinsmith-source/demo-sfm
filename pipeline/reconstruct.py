@@ -13,14 +13,24 @@ Datasets live under public/datasets/<id>/ with images/ in and data/ out:
   data/cameras.json    : [{name, position, target, q[wxyz], t, intrinsics, observations[]}]
 
 Usage:
-  uv run pipeline/reconstruct.py                 # every dataset in public/datasets/index.json
-  uv run pipeline/reconstruct.py <dataset-id>    # one dataset, e.g. temple-ring
-  uv run pipeline/reconstruct.py <img_dir> <out_dir>   # arbitrary folder
+  uv run pipeline/reconstruct.py                       # every dataset in index.json
+  uv run pipeline/reconstruct.py <dataset-id>          # one dataset, e.g. temple-ring
+  uv run pipeline/reconstruct.py -i <folder>           # only the pictures in <folder>
+  uv run pipeline/reconstruct.py -i <folder> -o <dir>  # arbitrary folder -> arbitrary out
+
+  -i/--images takes a folder name: an absolute/relative path, or a bare name that
+  is looked up under public/datasets/ (so `-i robot` builds public/datasets/robot/).
+
+  -j/--jobs caps the CPU worker threads used by every stage. It defaults to one
+  fewer than your core count so the reconstruction no longer pins every core (which
+  was freezing low-power machines). Lower it further on a laptop, e.g. -j 2.
 """
 
+import os
 import sys
 import json
 import shutil
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -31,37 +41,110 @@ PROJECT = Path(__file__).resolve().parent.parent  # repo root (pipeline/ -> repo
 DATASETS = PROJECT / "public" / "datasets"
 
 
-def main():
-    args = sys.argv[1:]
+def default_jobs():
+    # Leave a core free so the machine stays responsive instead of locking up at 100%.
+    return max(1, (os.cpu_count() or 2) - 1)
 
-    # Explicit <img_dir> <out_dir> form.
-    if len(args) >= 2:
-        reconstruct_one(Path(args[0]), Path(args[1]))
+
+def main():
+    p = argparse.ArgumentParser(
+        description="Run SfM reconstruction and export the web-viewer JSON.")
+    p.add_argument("dataset", nargs="?",
+                   help="dataset id under public/datasets/ (omit to build every dataset)")
+    p.add_argument("-i", "--images", metavar="FOLDER",
+                   help="folder of pictures to reconstruct; overrides the dataset's images/ dir")
+    p.add_argument("-o", "--out", metavar="DIR",
+                   help="output dir for the JSON (default: <dataset>/data, else <folder>/data)")
+    p.add_argument("-j", "--jobs", type=int, default=default_jobs(),
+                   help=f"max CPU worker threads per stage (default: {default_jobs()})")
+    args = p.parse_args()
+
+    jobs = max(1, args.jobs)
+
+    # Explicit folder of pictures via --images: build just those.
+    if args.images:
+        image_dir = resolve_image_dir(args.images, args.dataset)
+        out_dir = resolve_out_dir(args.out, args.dataset, image_dir)
+        reconstruct_one(image_dir, out_dir, jobs=jobs, name=args.dataset or image_dir.name)
         return
 
     # Resolve which dataset ids to build.
-    if len(args) == 1:
-        ids = [args[0]]
+    if args.dataset:
+        ids = [args.dataset]
     else:
         manifest = json.loads((DATASETS / "index.json").read_text())
         ids = [d["id"] for d in manifest]
 
     for did in ids:
         image_dir = DATASETS / did / "images"
-        out_dir = DATASETS / did / "data"
+        out_dir = Path(args.out) if args.out else DATASETS / did / "data"
         print(f"\n########## dataset: {did} ##########")
-        reconstruct_one(image_dir, out_dir)
+        reconstruct_one(image_dir, out_dir, jobs=jobs, name=did)
 
     print("\nDone. Run 'pnpm dev' (or rebuild) to view the reconstructions.")
 
 
-def reconstruct_one(image_dir, out_dir):
+def resolve_image_dir(folder, dataset):
+    """Resolve a folder name to an images directory.
+
+    Accepts a real path (absolute or relative to the cwd), or a bare name that is
+    looked up under the dataset and under public/datasets/.
+    """
+    candidates = [Path(folder)]
+    if dataset:
+        candidates += [DATASETS / dataset / "images" / folder, DATASETS / dataset / folder]
+    candidates.append(DATASETS / folder)
+    for c in candidates:
+        if c.is_dir():
+            return c
+    sys.exit(f"Images folder not found: {folder}")
+
+
+def resolve_out_dir(out, dataset, image_dir):
+    if out:
+        return Path(out)
+    if dataset:
+        return DATASETS / dataset / "data"
+    return image_dir / "data"
+
+
+def threaded_options(cls_name, jobs):
+    """Build a pycolmap options object with num_threads capped, defensively.
+
+    Returns None when the class or the field is unavailable so callers can simply
+    skip passing the option (keeps us working across pycolmap versions).
+    """
+    cls = getattr(pycolmap, cls_name, None)
+    if cls is None:
+        return None
+    opts = cls()
+    if not hasattr(opts, "num_threads"):
+        return None
+    opts.num_threads = jobs
+    return opts
+
+
+def call_with_options(fn, option_kwargs, **kwargs):
+    """Call fn with the optional options kwargs, falling back without them.
+
+    If a particular pycolmap build doesn't accept the option kwarg, retry without
+    it rather than crashing (the cap is best-effort).
+    """
+    if option_kwargs:
+        try:
+            return fn(**kwargs, **option_kwargs)
+        except TypeError:
+            pass
+    return fn(**kwargs)
+
+
+def reconstruct_one(image_dir, out_dir, jobs, name):
     out_dir.mkdir(parents=True, exist_ok=True)
 
     if not image_dir.exists():
         sys.exit(f"Image directory not found: {image_dir}")
 
-    work = PROJECT / ".sfm_work" / image_dir.parent.name
+    work = PROJECT / ".sfm_work" / name
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
@@ -71,16 +154,27 @@ def reconstruct_one(image_dir, out_dir):
 
     print("=" * 60)
     print("Structure-from-Motion reconstruction (pycolmap)")
+    print(f"  images : {image_dir}")
+    print(f"  out    : {out_dir}")
+    print(f"  jobs   : {jobs} CPU thread(s) per stage")
     print("=" * 60)
 
     # Only feed actual image files to COLMAP (skip K.txt / Readme.txt / *_par.txt).
     exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
     image_names = sorted(p.name for p in image_dir.iterdir() if p.suffix.lower() in exts)
+    if not image_names:
+        sys.exit(f"No images found in: {image_dir}")
     print(f"Images ({len(image_names)}): {', '.join(image_names)}")
+
+    sift_extract = threaded_options("SiftExtractionOptions", jobs)
+    sift_match = threaded_options("SiftMatchingOptions", jobs)
+    mapper = threaded_options("IncrementalPipelineOptions", jobs)
 
     # 1. SIFT feature extraction.
     print("\n[1/4] Extracting SIFT features…")
-    pycolmap.extract_features(
+    call_with_options(
+        pycolmap.extract_features,
+        {"sift_options": sift_extract} if sift_extract else None,
         database_path=db_path,
         image_path=image_dir,
         image_names=image_names,
@@ -88,11 +182,17 @@ def reconstruct_one(image_dir, out_dir):
 
     # 2. Exhaustive feature matching (every image against every other).
     print("\n[2/4] Matching features (exhaustive)…")
-    pycolmap.match_exhaustive(database_path=db_path)
+    call_with_options(
+        pycolmap.match_exhaustive,
+        {"sift_options": sift_match} if sift_match else None,
+        database_path=db_path,
+    )
 
     # 3. Incremental sparse reconstruction.
     print("\n[3/4] Incremental mapping…")
-    recs = pycolmap.incremental_mapping(
+    recs = call_with_options(
+        pycolmap.incremental_mapping,
+        {"options": mapper} if mapper else None,
         database_path=db_path,
         image_path=image_dir,
         output_path=sparse_dir,
