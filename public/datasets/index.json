@@ -11,5 +11,12 @@
     "subtitle": "COLMAP · full object · 47-view ring",
     "credit": "Temple of the Dioskouroi (plaster) · Middlebury Multi-View Stereo",
     "flipUp": false
+  },
+  {
+    "id": "hdm",
+    "name": "HdM Letters",
+    "subtitle": "Visual hull · silhouette carving · 26 views",
+    "credit": "HdM Stuttgart lettering",
+    "imageDir": "masked"
   }
 ]
