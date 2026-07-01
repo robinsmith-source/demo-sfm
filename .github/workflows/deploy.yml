@@ -1,16 +1,10 @@
 name: Deploy to GitHub Pages
 
-# Builds the site end-to-end in CI: runs the COLMAP reconstruction from the
-# committed source photos, bundles it with Vite, and publishes to GitHub Pages.
-# The generated reconstruction (public/data/) is NOT committed — it is rebuilt
-# here on every deploy, so the published cloud always matches public/images/.
-
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
-# Allow exactly one concurrent deploy; let an in-progress run finish.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -26,23 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Python reconstruction (uv + pycolmap) → public/data/*.json ──
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Reconstruct point cloud from photos
-        run: |
-          uv sync
-          uv run pipeline/reconstruct.py
-
-      # ── Web build (pnpm + Vite) → dist/ ──
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm

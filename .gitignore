@@ -1,4 +1,6 @@
 node_modules/
+.idea
+.claude
 dist/
 *.local
 .DS_Store
