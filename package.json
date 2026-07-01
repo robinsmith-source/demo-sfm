@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Static web viewer for a real COLMAP Structure-from-Motion reconstruction of the Sceaux Castle dataset.",
+  "description": "Static web viewer for a real COLMAP Structure-from-Motion reconstruction of different datasets.",
   "packageManager": "pnpm@10.33.4",
   "scripts": {
     "reconstruct": "uv run pipeline/reconstruct.py",
